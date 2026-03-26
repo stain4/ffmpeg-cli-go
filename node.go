@@ -1,4 +1,4 @@
-package ffmpeg_go
+package ffmpeg_cli_go
 
 import (
 	"errors"

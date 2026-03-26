@@ -1,6 +1,6 @@
 // +build !debug
 
-package ffmpeg_go
+package ffmpeg_cli_go
 
 func DebugNodes(node []DagNode) {}
 
