@@ -104,8 +104,8 @@ func (s *Stream) Drawtext(text string, x, y int, escape bool, kwargs ...KwArgs) 
 
 func Concat(streams []*Stream, kwargs ...KwArgs) *Stream {
 	args := MergeKwArgs(kwargs)
-	vsc := args.GetDefault("v", 1).(int)
-	asc := args.GetDefault("a", 0).(int)
+	vsc := GetDefault(args, "v", 1)
+	asc := GetDefault(args, "a", 0)
 	sc := vsc + asc
 	if len(streams)%sc != 0 {
 		panic("streams count not valid")
