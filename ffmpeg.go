@@ -1,16 +1,8 @@
 package ffmpeg_go
 
 import (
-	"context"
 	"errors"
-	"io"
 	"log"
-	"os"
-	"strings"
-
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
 // Input file URL (ffmpeg “-i“ option)
@@ -112,55 +104,51 @@ func Output(streams []*Stream, fileName string, kwargs ...KwArgs) *Stream {
 //
 //	Official documentation: `Synopsis <https://ffmpeg.org/ffmpeg.html#Synopsis>`__
 //	"""
-func OutputContext(ctx context.Context, streams []*Stream, fileName string, kwargs ...KwArgs) *Stream {
-	output := Output(streams, fileName, kwargs...)
-	output.Context = ctx
+func (s *Stream) Output(fileName string, kwargs ...KwArgs) *Stream {
+	if s.Type != "FilterableStream" && s.Type != "RawArgsStream" {
+		log.Panic("cannot output on non-FilterableStream or non-RawArgsStream")
+	}
+	output := Output([]*Stream{s}, fileName, kwargs...)
 	return output
 }
 
-func (s *Stream) Output(fileName string, kwargs ...KwArgs) *Stream {
-	if s.Type != "FilterableStream" {
-		log.Panic("cannot output on non-FilterableStream")
+// Method that initiates the creation of a MapChapters node from an InputNode node.
+func (s *Stream) MapChapters() *Stream {
+	AssertType(s.Type, "FilterableStream", "map_chapters")
+
+	if s.Node.nodeType != "InputNode" {
+		panic("MapChapters can only be called directly from an Input")
 	}
-	if strings.HasPrefix(fileName, "s3://") {
-		return s.outputS3Stream(fileName, kwargs...)
-	}
-	return OutputContext(s.Context, []*Stream{s}, fileName, kwargs...)
+
+	return NewMapChaptersNode("map_chapters", []*Stream{s}).Stream("", "")
 }
 
-func (s *Stream) outputS3Stream(fileName string, kwargs ...KwArgs) *Stream {
-	r, w := io.Pipe()
-	fileL := strings.SplitN(strings.TrimPrefix(fileName, "s3://"), "/", 2)
-	if len(fileL) != 2 {
-		log.Panic("s3 file format not valid")
-	}
-	args := MergeKwArgs(kwargs)
-	awsConfig := args.PopDefault("aws_config", &aws.Config{}).(*aws.Config)
-	bucket, key := fileL[0], fileL[1]
-	o := Output([]*Stream{s}, "pipe:", args).
-		WithOutput(w, os.Stdout)
-	done := make(chan struct{})
-	runHook := RunHook{
-		f: func() {
-			defer func() {
-				done <- struct{}{}
-			}()
+// RawArgs creates an initial stream of raw command-line arguments.
+func RawArgs(args ...string) *Stream {
+	return NewRawArgsNode("raw_args", args, nil).Stream("", "")
+}
 
-			sess, err := session.NewSession(awsConfig)
-			uploader := s3manager.NewUploader(sess)
-			_, err = uploader.Upload(&s3manager.UploadInput{
-				Bucket: &bucket,
-				Key:    &key,
-				Body:   r,
-			})
-			//fmt.Println(ioutil.ReadAll(r))
-			if err != nil {
-				log.Println("upload fail", err)
-			}
-		},
-		done:   done,
-		closer: w,
+// The RawArgs method adds new arguments to an existing RawArgsStream chain.ы
+func (s *Stream) RawArgs(args ...string) *Stream {
+	AssertType(s.Type, "RawArgsStream", "raw_args")
+	return NewRawArgsNode("raw_args", args, []*Stream{s}).Stream("", "")
+}
+
+// it - from (Input Target), ot - to (Output Target)
+func (s *Stream) MapMetadata(ot, it string) *Stream {
+	AssertType(s.Type, "FilterableStream", "map_metadata")
+
+	if s.Node.nodeType != "InputNode" {
+		panic("MapMetadata can only be called directly from an Input")
 	}
-	o.Context = context.WithValue(o.Context, "run_hook", &runHook)
-	return o
+
+	kwargs := KwArgs{}
+	if ot != "" {
+		kwargs["ot"] = ot
+	}
+	if it != "" {
+		kwargs["it"] = it
+	}
+
+	return NewMapMetadataNode("map_metadata", []*Stream{s}, kwargs).Stream("", "")
 }

@@ -1,15 +1,9 @@
 package ffmpeg_go
 
 import (
-	"context"
 	"fmt"
-	"io"
-	"log"
-	"os"
-	"os/exec"
-	"sort"
+	"slices"
 	"strings"
-	"time"
 )
 
 func getInputArgs(node *Node) []string {
@@ -67,9 +61,7 @@ func _getAllLabelsInSorted(m map[Label]NodeInfo) []Label {
 	for a := range m {
 		r = append(r, a)
 	}
-	sort.Slice(r, func(i, j int) bool {
-		return r[i] < r[j]
-	})
+	slices.Sort(r)
 	return r
 }
 
@@ -78,9 +70,7 @@ func _getAllLabelsSorted(m map[Label][]NodeInfo) []Label {
 	for a := range m {
 		r = append(r, a)
 	}
-	sort.Slice(r, func(i, j int) bool {
-		return r[i] < r[j]
-	})
+	slices.Sort(r)
 	return r
 }
 
@@ -113,20 +103,88 @@ func _getGlobalArgs(node *Node) []string {
 	return node.args
 }
 
+// Recursively collects arguments only from the RawArgsNode chain.
+// Due to the structure of the DAG, each output stream will only see its own branch.
+func _collectRawArgs(node *Node) []string {
+	var res []string
+	for _, e := range node.GetInComingEdges() {
+		if upNode, ok := e.UpStreamNode.(*Node); ok && upNode.nodeType == "RawArgsNode" {
+			res = append(res, _collectRawArgs(upNode)...)
+		}
+	}
+	res = append(res, node.args...)
+	return res
+}
+
 func _getOutputArgs(node *Node, streamNameMap map[string]string) []string {
 	if node.name != "output" {
 		panic("Unsupported output node")
 	}
 	var args []string
-	if len(node.GetInComingEdges()) == 0 {
+	incomingEdges := node.GetInComingEdges()
+	if len(incomingEdges) == 0 {
 		panic("Output node has no mapped streams")
 	}
-	for _, e := range node.GetInComingEdges() {
+
+	// -map_chapters
+	var hasChapters bool
+	for _, e := range incomingEdges {
+		if e.UpStreamNode.(*Node).nodeType == "MapChaptersNode" {
+			if hasChapters {
+				panic(fmt.Sprintf("output '%s' has multiple map_chapters sources", node.kwargs["filename"]))
+			}
+			chaptersInputEdges := e.UpStreamNode.(*Node).GetInComingEdges()
+			inputIdx := streamNameMap[fmt.Sprintf("%d", chaptersInputEdges[0].UpStreamNode.Hash())]
+
+			args = append(args, "-map_chapters", inputIdx)
+			hasChapters = true
+		}
+	}
+
+	// -map
+	for _, e := range incomingEdges {
+		upNode := e.UpStreamNode.(*Node)
+		// Inappropriate nodes are skipped.
+		if upNode.nodeType == "MapChaptersNode" || upNode.nodeType == "RawArgsNode" || upNode.nodeType == "MapMetadataNode" {
+			continue
+		}
+
 		streamName := formatInputStreamName(streamNameMap, e, true)
-		if streamName != "0" || len(node.GetInComingEdges()) > 1 {
+		if streamName != "0" || len(incomingEdges) > 1 {
 			args = append(args, "-map", streamName)
 		}
 	}
+
+	// -map_metadata after -map
+	for _, e := range incomingEdges {
+		if upNode := e.UpStreamNode.(*Node); upNode.nodeType == "MapMetadataNode" {
+			metaInEdges := upNode.GetInComingEdges()
+			inputIdx := streamNameMap[fmt.Sprintf("%d", metaInEdges[0].UpStreamNode.Hash())]
+
+			ot := upNode.kwargs.GetString("ot")
+			it := upNode.kwargs.GetString("it")
+
+			flag := "-map_metadata"
+			if ot != "" {
+				flag = fmt.Sprintf("%s:%s", flag, ot)
+			}
+
+			argVal := inputIdx
+			if it != "" {
+				argVal = fmt.Sprintf("%s:%s", argVal, it)
+			}
+
+			args = append(args, flag, argVal)
+		}
+	}
+
+	// RawArgs before Output
+	for _, e := range incomingEdges {
+		if upNode := e.UpStreamNode.(*Node); upNode.nodeType == "RawArgsNode" {
+			args = append(args, _collectRawArgs(upNode)...)
+		}
+	}
+
 	kwargs := node.kwargs.Copy()
 
 	filename := kwargs.PopString("filename")
@@ -175,6 +233,12 @@ func (s *Stream) GetArgs() []string {
 			globalNodes = append(globalNodes, n)
 		case "FilterNode":
 			filterNodes = append(filterNodes, n)
+		case "MapChaptersNode":
+		case "MapMetadataNode":
+		case "RawArgsNode":
+			// If a "default: with panic()" section appears later,
+			// unspecified nodes will end up there. To prevent them
+			// from ending up there, all node types are listed.
 		}
 	}
 	// input args from inputNodes
@@ -194,96 +258,6 @@ func (s *Stream) GetArgs() []string {
 	for _, n := range globalNodes {
 		args = append(args, _getGlobalArgs(n)...)
 	}
-	if s.Context.Value("OverWriteOutput") != nil {
-		args = append(args, "-y")
-	}
+	//
 	return args
-}
-
-func (s *Stream) WithTimeout(timeOut time.Duration) *Stream {
-	if timeOut > 0 {
-		s.Context, _ = context.WithTimeout(s.Context, timeOut)
-	}
-	return s
-}
-
-func (s *Stream) OverWriteOutput() *Stream {
-	s.Context = context.WithValue(s.Context, "OverWriteOutput", struct{}{})
-	return s
-}
-
-func (s *Stream) WithInput(reader io.Reader) *Stream {
-	s.Context = context.WithValue(s.Context, "Stdin", reader)
-	return s
-}
-
-func (s *Stream) WithOutput(out ...io.Writer) *Stream {
-	if len(out) > 0 {
-		s.Context = context.WithValue(s.Context, "Stdout", out[0])
-	}
-	if len(out) > 1 {
-		s.Context = context.WithValue(s.Context, "Stderr", out[1])
-	}
-	return s
-}
-
-func (s *Stream) WithErrorOutput(out io.Writer) *Stream {
-	s.Context = context.WithValue(s.Context, "Stderr", out)
-	return s
-}
-
-func (s *Stream) ErrorToStdOut() *Stream {
-	return s.WithErrorOutput(os.Stdout)
-}
-
-type CommandOption func(cmd *exec.Cmd)
-
-var GlobalCommandOptions = make([]CommandOption, 0)
-
-type CompilationOption func(s *Stream, cmd *exec.Cmd)
-
-func (s *Stream) SetFfmpegPath(path string) *Stream {
-	s.FfmpegPath = path
-	return s
-}
-
-var LogCompiledCommand bool = true
-
-func (s *Stream) Silent(isSilent bool) *Stream {
-	LogCompiledCommand = !isSilent
-	return s
-}
-func (s *Stream) Compile(options ...CompilationOption) *exec.Cmd {
-	args := s.GetArgs()
-	cmd := exec.CommandContext(s.Context, s.FfmpegPath, args...)
-	if a, ok := s.Context.Value("Stdin").(io.Reader); ok {
-		cmd.Stdin = a
-	}
-	if a, ok := s.Context.Value("Stdout").(io.Writer); ok {
-		cmd.Stdout = a
-	}
-	if a, ok := s.Context.Value("Stderr").(io.Writer); ok {
-		cmd.Stderr = a
-	}
-	for _, option := range GlobalCommandOptions {
-		option(cmd)
-	}
-  if LogCompiledCommand {
-		log.Printf("compiled command: ffmpeg %s\n", strings.Join(args, " "))
-	}
-	return cmd
-}
-
-func (s *Stream) Run(options ...CompilationOption) error {
-	if s.Context.Value("run_hook") != nil {
-		hook := s.Context.Value("run_hook").(*RunHook)
-		go hook.f()
-		defer func() {
-			if hook.closer != nil {
-				_ = hook.closer.Close()
-			}
-			<-hook.done
-		}()
-	}
-	return s.Compile(options...).Run()
 }

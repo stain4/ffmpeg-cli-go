@@ -1,7 +1,6 @@
 package ffmpeg_go
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,30 +9,18 @@ import (
 )
 
 type Stream struct {
-	Node       *Node
-	Label      Label
-	Selector   Selector
-	Type       string
-	FfmpegPath string
-	Context    context.Context
-}
-
-type RunHook struct {
-	f      func()
-	done   <-chan struct{}
-	closer interface {
-		Close() error
-	}
+	Node     *Node
+	Label    Label
+	Selector Selector
+	Type     string
 }
 
 func NewStream(node *Node, streamType string, label Label, selector Selector) *Stream {
 	return &Stream{
-		Node:       node,
-		Label:      label,
-		Selector:   selector,
-		Type:       streamType,
-		FfmpegPath: "ffmpeg",
-		Context:    context.Background(),
+		Node:     node,
+		Label:    label,
+		Selector: selector,
+		Type:     streamType,
 	}
 }
 
@@ -147,7 +134,7 @@ func NewFilterNode(name string, streamSpec []*Stream, maxInput int, args []strin
 func NewOutputNode(name string, streamSpec []*Stream, args []string, kwargs KwArgs) *Node {
 	return NewNode(streamSpec,
 		name,
-		sets.NewString("FilterableStream"),
+		sets.NewString("FilterableStream", "ChaptersStream", "RawArgsStream", "MetadataStream"),
 		"OutputStream",
 		1,
 		-1,
@@ -178,6 +165,42 @@ func NewGlobalNode(name string, streamSpec []*Stream, args []string, kwargs KwAr
 		args,
 		kwargs,
 		"GlobalNode")
+}
+
+func NewMapChaptersNode(name string, streamSpec []*Stream) *Node {
+	return NewNode(streamSpec,
+		name,
+		sets.NewString("FilterableStream"),
+		"ChaptersStream",
+		1,
+		1,
+		nil,
+		nil,
+		"MapChaptersNode")
+}
+
+func NewRawArgsNode(name string, args []string, streamSpec []*Stream) *Node {
+	return NewNode(streamSpec,
+		name,
+		sets.NewString("RawArgsStream"),
+		"RawArgsStream",
+		0,
+		1,
+		args,
+		nil,
+		"RawArgsNode")
+}
+
+func NewMapMetadataNode(name string, streamSpec []*Stream, kwargs KwArgs) *Node {
+	return NewNode(streamSpec,
+		name,
+		sets.NewString("FilterableStream"),
+		"MetadataStream",
+		1,
+		1,
+		nil,
+		kwargs,
+		"MapMetadataNode")
 }
 
 func (n *Node) __checkInputLen() {
@@ -246,8 +269,18 @@ func (n *Node) Stream(label Label, selector Selector) *Stream {
 	return NewStream(n, n.outgoingStreamType, label, selector)
 }
 
+// Old version (can`t use .Get("a:m:language:rus")s)
+// func (n *Node) Get(a string) *Stream {
+// 	l := strings.Split(a, ":")
+// 	if len(l) == 2 {
+// 		return n.Stream(Label(l[0]), Selector(l[1]))
+// 	}
+// 	return n.Stream(Label(a), "")
+// }
+
+// .Get("a:m:language:rus")
 func (n *Node) Get(a string) *Stream {
-	l := strings.Split(a, ":")
+	l := strings.SplitN(a, ":", 2)
 	if len(l) == 2 {
 		return n.Stream(Label(l[0]), Selector(l[1]))
 	}
