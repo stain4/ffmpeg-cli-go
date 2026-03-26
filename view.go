@@ -48,7 +48,7 @@ func visualizeForMermaidAsStateDiagram(s *Stream) (string, error) {
 				if label == "" {
 					label = "<>"
 				}
-				buf.WriteString(fmt.Sprintf(`    %s --> %s: %s`, node.ShortRepr(), nextNode.Node.ShortRepr(), label))
+				fmt.Fprintf(&buf, `    %s --> %s: %s`, node.ShortRepr(), nextNode.Node.ShortRepr(), label)
 				buf.WriteString("\n")
 			}
 		}
@@ -72,7 +72,7 @@ func visualizeForMermaidAsFlowChart(s *Stream) (string, error) {
 	buf.WriteString("graph LR\n")
 
 	for _, node := range sorted {
-		buf.WriteString(fmt.Sprintf(`    %d[%s]`, node.Hash(), node.ShortRepr()))
+		fmt.Fprintf(&buf, `    %d[%s]`, node.Hash(), node.ShortRepr())
 		buf.WriteString("\n")
 	}
 	buf.WriteString("\n")
@@ -86,7 +86,7 @@ func visualizeForMermaidAsFlowChart(s *Stream) (string, error) {
 				if label == "" {
 					label = "<>"
 				}
-				buf.WriteString(fmt.Sprintf(`    %d --> |%s| %d`, node.Hash(), fmt.Sprintf("%s:%s", nextNode.Label, label), nextNode.Node.Hash()))
+				fmt.Fprintf(&buf, `    %d --> |%s| %d`, node.Hash(), fmt.Sprintf("%s:%s", nextNode.Label, label), nextNode.Node.Hash())
 				buf.WriteString("\n")
 			}
 		}
