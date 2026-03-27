@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/u2takey/go-utils/sets"
 )
 
 func getString(item any) string {
@@ -81,7 +79,7 @@ func getHash(item any) int {
 }
 
 func escapeChars(text, chars string) string {
-	s := sets.NewString()
+	s := NewLightStringSet()
 	for _, a := range chars {
 		s.Insert(string(a))
 	}

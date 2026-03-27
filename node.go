@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/u2takey/go-utils/sets"
 )
 
 type Stream struct {
@@ -73,7 +71,7 @@ func getStreamSpecNodes(streamSpec []*Stream) []*Node {
 type Node struct {
 	streamSpec          []*Stream
 	name                string
-	incomingStreamTypes sets.String
+	incomingStreamTypes LightStringSet
 	outgoingStreamType  string
 	minInputs           int
 	maxInputs           int
@@ -84,7 +82,7 @@ type Node struct {
 
 func NewNode(streamSpec []*Stream,
 	name string,
-	incomingStreamTypes sets.String,
+	incomingStreamTypes LightStringSet,
 	outgoingStreamType string,
 	minInputs int,
 	maxInputs int,
@@ -122,7 +120,7 @@ func NewInputNode(name string, args []string, kwargs KwArgs) *Node {
 func NewFilterNode(name string, streamSpec []*Stream, maxInput int, args []string, kwargs KwArgs) *Node {
 	return NewNode(streamSpec,
 		name,
-		sets.NewString("FilterableStream"),
+		NewLightStringSet("FilterableStream"),
 		"FilterableStream",
 		1,
 		maxInput,
@@ -134,7 +132,7 @@ func NewFilterNode(name string, streamSpec []*Stream, maxInput int, args []strin
 func NewOutputNode(name string, streamSpec []*Stream, args []string, kwargs KwArgs) *Node {
 	return NewNode(streamSpec,
 		name,
-		sets.NewString("FilterableStream", "ChaptersStream", "RawArgsStream", "MetadataStream"),
+		NewLightStringSet("FilterableStream", "ChaptersStream", "RawArgsStream", "MetadataStream"),
 		"OutputStream",
 		1,
 		-1,
@@ -146,7 +144,7 @@ func NewOutputNode(name string, streamSpec []*Stream, args []string, kwargs KwAr
 func NewMergeOutputsNode(name string, streamSpec []*Stream) *Node {
 	return NewNode(streamSpec,
 		name,
-		sets.NewString("OutputStream"),
+		NewLightStringSet("OutputStream"),
 		"OutputStream",
 		1,
 		-1,
@@ -158,7 +156,7 @@ func NewMergeOutputsNode(name string, streamSpec []*Stream) *Node {
 func NewGlobalNode(name string, streamSpec []*Stream, args []string, kwargs KwArgs) *Node {
 	return NewNode(streamSpec,
 		name,
-		sets.NewString("OutputStream"),
+		NewLightStringSet("OutputStream"),
 		"OutputStream",
 		1,
 		1,
@@ -170,7 +168,7 @@ func NewGlobalNode(name string, streamSpec []*Stream, args []string, kwargs KwAr
 func NewMapChaptersNode(name string, streamSpec []*Stream) *Node {
 	return NewNode(streamSpec,
 		name,
-		sets.NewString("FilterableStream"),
+		NewLightStringSet("FilterableStream"),
 		"ChaptersStream",
 		1,
 		1,
@@ -182,7 +180,7 @@ func NewMapChaptersNode(name string, streamSpec []*Stream) *Node {
 func NewRawArgsNode(name string, args []string, streamSpec []*Stream) *Node {
 	return NewNode(streamSpec,
 		name,
-		sets.NewString("RawArgsStream"),
+		NewLightStringSet("RawArgsStream"),
 		"RawArgsStream",
 		0,
 		1,
@@ -194,7 +192,7 @@ func NewRawArgsNode(name string, args []string, streamSpec []*Stream) *Node {
 func NewMapMetadataNode(name string, streamSpec []*Stream, kwargs KwArgs) *Node {
 	return NewNode(streamSpec,
 		name,
-		sets.NewString("FilterableStream"),
+		NewLightStringSet("FilterableStream"),
 		"MetadataStream",
 		1,
 		1,
